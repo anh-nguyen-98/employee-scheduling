@@ -11,6 +11,7 @@ class Employee:
 
     # compare employees
     def __lt__(self, other):
+        # TODO: more criteria to prioritize employees when assigning work can be added here
         if self.workload == other.workload:
             return len(self.availability) < len(other.availability)
         return self.workload < other.workload
@@ -83,7 +84,7 @@ class Scheduler:
             shifts = self.prioritize_shifts(day)
             for shift in shifts:
                 prioritized_people = PriorityQueue(self.shift_availability[day][shift])
-                while not prioritized_people.is_empty() and self.schedule[day][shift] == -1:
+                while not prioritized_people.is_empty() and self.schedule[day][shift] == -1: # -1 means no one is assigned yet
                     employee = prioritized_people.pop()
                     if self.can_assign(employee, day, shift):
                         self.schedule[day][shift] = employee.id

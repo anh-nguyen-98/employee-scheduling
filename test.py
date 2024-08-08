@@ -9,7 +9,7 @@ class Employee:
         self.availability_in_week = availability # availability[day] = list of shifts that employee is available in that day
         self.workload = 0
 
-    def get_avilability_on_day(self, day):
+    def get_availability_on_day(self, day):
         return self.availability_in_week[day]
     
     def set_workload(self, workload):
@@ -29,8 +29,8 @@ class EmployeeComparator:
         if self.employee.workload != other.employee.workload:
             return self.employee.workload < other.employee.workload
         # then compare by today's availability
-        employee_today_availability = self.employee.get_avilability_on_day(self.compared_day)
-        other_today_availability = other.employee.get_avilability_on_day(self.compared_day)
+        employee_today_availability = self.employee.get_availability_on_day(self.compared_day)
+        other_today_availability = other.employee.get_availability_on_day(self.compared_day)
         return len(employee_today_availability) < len(other_today_availability)
         
 

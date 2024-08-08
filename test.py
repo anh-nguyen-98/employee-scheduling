@@ -6,14 +6,18 @@ class Employee:
     def __init__(self, id, name, availability) -> None:
         self.id = id
         self.name = name
-        self.availability = availability
+        self.availability_in_week = availability # availability[day] = list of shifts that employee is available in that day
+        self.availability_today = []
         self.workload = 0
+
+    def set_today_availability(self, today):
+        return self.availability_in_week[today]
 
     # compare employees
     def __lt__(self, other):
         # TODO: more criteria to prioritize employees when assigning work can be added here
         if self.workload == other.workload:
-            return len(self.availability) < len(other.availability)
+            return len(self.availability_today) < len(other.availability_today)
         return self.workload < other.workload
     
     def set_workload(self, workload):
@@ -83,9 +87,13 @@ class Scheduler:
         for day in range(self.num_days):
             shifts = self.prioritize_shifts(day)
             for shift in shifts:
-                prioritized_people = PriorityQueue(self.shift_availability[day][shift])
-                while not prioritized_people.is_empty() and self.schedule[day][shift] == -1: # -1 means no one is assigned yet
-                    employee = prioritized_people.pop()
+                available_employees = self.shift_availability[day][shift]
+                # update today's availability for each employee
+                for employee in available_employees:
+                    employee.set_today_availability(day)
+                prioritized_employees = PriorityQueue(available_employees)
+                while not prioritized_employees.is_empty() and self.schedule[day][shift] == -1: # -1 means no one is assigned yet
+                    employee = prioritized_employees.pop()
                     if self.can_assign(employee, day, shift):
                         self.schedule[day][shift] = employee.id
                         employee.set_workload(employee.workload + 1)

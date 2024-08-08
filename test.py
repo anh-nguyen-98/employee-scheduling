@@ -7,22 +7,32 @@ class Employee:
         self.id = id
         self.name = name
         self.availability_in_week = availability # availability[day] = list of shifts that employee is available in that day
-        self.availability_today = []
         self.workload = 0
 
-    def set_today_availability(self, today):
-        return self.availability_in_week[today]
-
-    # compare employees
-    def __lt__(self, other):
-        # TODO: more criteria to prioritize employees when assigning work can be added here
-        if self.workload == other.workload:
-            return len(self.availability_today) < len(other.availability_today)
-        return self.workload < other.workload
+    def get_avilability_on_day(self, day):
+        return self.availability_in_week[day]
     
     def set_workload(self, workload):
         self.workload = workload
 
+
+class EmployeeComparator:
+    def __init__(self, employee, day, shift) -> None:
+        self.employee = employee
+        self.compared_day = day
+        self.compared_shift = shift
+
+    # compare employees
+    def __lt__(self, other):
+        # TODO: more criteria to prioritize employees when assigning work can be added here
+        # first compare by workload
+        if self.employee.workload != other.employee.workload:
+            return self.employee.workload < other.employee.workload
+        # then compare by today's availability
+        employee_today_availability = self.employee.get_avilability_on_day(self.compared_day)
+        other_today_availability = other.employee.get_avilability_on_day(self.compared_day)
+        return len(employee_today_availability) < len(other_today_availability)
+        
 
 class PriorityQueue:
     def __init__(self, iterable) -> None:
@@ -56,6 +66,10 @@ class Scheduler:
         self.schedule = [[-1 for _ in range(self.num_shifts)] for _ in range(self.num_days)]
 
 
+    def get_employee(self, employee_id):
+        return self.employees[employee_id]
+
+
     def calculate_workload_limit(self):
         # TODO: workload limit can be adjusted here
         return math.ceil(self.num_days * self.num_shifts / self.num_employees)
@@ -68,7 +82,7 @@ class Scheduler:
             # list of shifts that person is available for each day
             for day in range(self.num_days):
                 for shift in person_availability[day]:
-                    shift_availability[day][shift].append(self.employees[person_id])
+                    shift_availability[day][shift].append(person_id)
         return shift_availability
 
 
@@ -83,17 +97,18 @@ class Scheduler:
         return shifts
 
 
+    def prioritize_employees(self, available_employee_ids, day, shift) -> 'PriorityQueue':
+        return PriorityQueue([EmployeeComparator(self.get_employee(employee_id), day, shift) for employee_id in available_employee_ids])
+
+
     def assign_work(self):
         for day in range(self.num_days):
             shifts = self.prioritize_shifts(day)
             for shift in shifts:
-                available_employees = self.shift_availability[day][shift]
-                # update today's availability for each employee
-                for employee in available_employees:
-                    employee.set_today_availability(day)
-                prioritized_employees = PriorityQueue(available_employees)
+                available_employee_ids = self.shift_availability[day][shift]
+                prioritized_employees = self.prioritize_employees(available_employee_ids, day, shift)
                 while not prioritized_employees.is_empty() and self.schedule[day][shift] == -1: # -1 means no one is assigned yet
-                    employee = prioritized_employees.pop()
+                    employee = prioritized_employees.pop().employee
                     if self.can_assign(employee, day, shift):
                         self.schedule[day][shift] = employee.id
                         employee.set_workload(employee.workload + 1)
@@ -115,6 +130,10 @@ class Scheduler:
                     employee = self.employees[self.schedule[day][shift]]
                     row += f"{employee.name}\t"
             print(row)
+        
+        print("\nWorkload:")
+        for employee in self.employees:
+            print(f"{employee.name}: {employee.workload}")
 
 
 def main():

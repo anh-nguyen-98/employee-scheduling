@@ -3,6 +3,7 @@ import math
 import csv
 import utils
 import re
+import sys
 
 def binary_search(arr, target):
     left = 0
@@ -18,12 +19,13 @@ def binary_search(arr, target):
     return -1
 
 class Employee:
-    def __init__(self, id, name, registration_time, availability) -> None:
+    def __init__(self, id, name, availability) -> None:
         self.id = id
         self.name = name
         self.availability_in_week = availability # availability[day] = list of shifts that employee is available in that day
         self.workload = 0
-        self.registration_time = registration_time
+
+
 
     def get_availability_on_day(self, day):
         return self.availability_in_week[day]
@@ -32,12 +34,15 @@ class Employee:
     def set_workload(self, workload):
         self.workload = workload
 
+    def update_shifts_assigned(self, shift_id):
+        self.shifts_assigned[shift_id] += 1
 
 class Shift:
-    def __init__(self, id, label, is_main_shift=True) -> None:
+    def __init__(self, id, label, is_main_shift=True, is_even_numbered_shift=False) -> None:
         self.id = id
         self.label = label
         self.is_main_shift = is_main_shift
+        self.is_even_numbered_shift = False
         self.backup_shift_id = -1
 
     def get_workload_value(self):
@@ -46,6 +51,10 @@ class Shift:
     
     def set_backup(self, shift_id):
         self.backup_shift_id = shift_id
+
+
+    def set_is_even_numbered_shift(self):
+        self.is_even_numbered_shift = True
 
 
 class TimeRangeShift(Shift):
@@ -79,11 +88,7 @@ class EmployeeComparator:
         other_shift_index = binary_search(other_today_availability, self.compared_shift)
         employee_num_available_shifts = len(employee_today_availability) - employee_shift_index
         other_num_available_shifts = len(other_today_availability) - other_shift_index
-        if employee_num_available_shifts != other_num_available_shifts:
-            return len(employee_today_availability) < len(other_today_availability)
-        
-        # then compare by registration time   
-        return self.employee.registration_time < other.employee.registration_time
+        return employee_num_available_shifts <= other_num_available_shifts
         
 
 class PriorityQueue:
@@ -102,29 +107,28 @@ class PriorityQueue:
 
 
 class Scheduler:
-    def __init__(self, availability, employee_names, day_labels, shift_labels, work_limit=None, total_workload_limit=120) -> None:
+    def __init__(self, availability, employee_names, day_labels, shift_labels, total_workload_limit=None) -> None:
         self.day_labels = day_labels
         self.shift_labels = shift_labels
         self.num_employees = len(employee_names)
         self.num_days = len(day_labels)
         self.num_shifts = len(shift_labels)
 
-        self.employees = [Employee(i, employee_names[i], i, availability[i]) for i in range(self.num_employees)]
+        self.employees = [Employee(i, employee_names[i], availability[i]) for i in range(self.num_employees)]
         self.shifts = [TimeRangeShift(i, shift_labels[i]) for i in range(self.num_shifts)]
         self.shifts = sorted(self.shifts, key=lambda shift: shift.start_time)
         self.main_shift_ids = [shift.id for shift in self.shifts if shift.is_main_shift]
 
         self.shift_availability = self.create_shift_availability(availability)
 
-        self.TOTAL_WORKLOAD_LIMIT = total_workload_limit
+        self.TOTAL_WORKLOAD_LIMIT = total_workload_limit if total_workload_limit else sys.maxsize
         self.total_workload = 0
 
-        self.WORKLOAD_LIMIT_PER_PERSON = self.calculate_workload_limit() if work_limit is None else work_limit
+        self.WORKLOAD_LIMIT_PER_PERSON = total_workload_limit / self.num_employees if total_workload_limit else sys.maxsize
         
 
         self.schedule = [[[] for _ in range(self.num_shifts)] for _ in range(self.num_days)] # schedule[day][shift] = [employee_id] list of employees assigned to that shift in that day
-
-        self.assignment = [[-1 for _ in range(self.num_days)] for _ in range(self.num_employees)]
+        self.assignment = [[-1 for _ in range(self.num_days)] for _ in range(self.num_employees)] # assignment[employee][day] = shift assigned to that employee in that day
 
     def get_shift_id_by_label(self, shift_label):
         for shift in self.shifts:
@@ -132,13 +136,16 @@ class Scheduler:
                 return shift.id
         return -1
 
-    def set_backup_shift(self, shift_label, backup_shift_label):
+    def set_backup_shift(self, backup_shift_label, shift_label):
         shift_id = self.get_shift_id_by_label(shift_label)
         backup_shift_id = self.get_shift_id_by_label(backup_shift_label)
         self.get_shift(shift_id).set_backup(backup_shift_id)
         self.get_shift(backup_shift_id).is_main_shift = False
         self.main_shift_ids.remove(backup_shift_id)
 
+    def set_even_numbered_shifts(self, shift_label):
+        shift_id = self.get_shift_id_by_label(shift_label)
+        self.get_shift(shift_id).set_is_even_numbered_shift()
 
     @staticmethod
     def are_shifts_continuous_within_time_range(shifts, start_time, end_time):
@@ -184,17 +191,9 @@ class Scheduler:
         return False
 
 
-    def can_assign(self, employee: Employee, day, shift):
-        # MORE CONDITIONS CAN BE ADDED HERE
-        # shift_workload = self.get_shift(shift).get_workload_value()
-        # if employee.workload >= self.WORKLOAD_LIMIT_PER_PERSON or employee.workload + shift_workload > self.WORKLOAD_LIMIT_PER_PERSON:
-        #     return False
-        for shift in self.schedule[day]:
-            if employee.id in shift:
-                return False
-        return True
     
     def get_shifts_within_time_range(self, start_time, end_time):
+        # CAN BE OPTIMIZED USING BINARY SEARCH
         return [shift.id for shift in self.shifts if shift.start_time <= start_time and shift.end_time >= end_time]
     
     def get_available_employee_ids_for_shift(self, day_index, shift_index):
@@ -223,10 +222,18 @@ class Scheduler:
 
 
     def validate_schedule(self, day_index):
-        today_shifts = [self.get_shift(shift_index) for shift_index in range(self.num_shifts) if self.schedule[day_index][shift_index] != []]
+        # Get all shifts for the given day that have assigned employees
+        today_shifts = [
+            self.get_shift(shift_index) 
+            for shift_index in range(self.num_shifts) 
+            if self.schedule[day_index][shift_index]
+        ]
+        
+        # Check if the shifts are continuous within the time range 8:00 to 22:00
         if not Scheduler.are_shifts_continuous_within_time_range(today_shifts, 8, 22):
             print(f"Day {self.day_labels[day_index]} is not continuous")
 
+        # Define extra requirement for the shift from 18:00 to 22:00
         extra_requirement = {
             "start_time": 18,
             "end_time": 22,
@@ -234,48 +241,109 @@ class Scheduler:
             "shift_id_to_assign_extra": self.get_shift_id_by_label("18->22")
         }
 
-        current_num_assignees = self.get_num_assignees_within_time_range(day_index, extra_requirement["start_time"], extra_requirement["end_time"])
-        to_assign = extra_requirement["num_assignees_required"] - current_num_assignees
-        assigned = self.assign_employees_to_shift(day_index, extra_requirement["shift_id_to_assign_extra"], to_assign)
-        if assigned < to_assign:
-            current_num_assignees = self.get_num_assignees_within_time_range(day_index, extra_requirement["start_time"], extra_requirement["end_time"])
-            print(f"Day {self.day_labels[day_index]} have only {current_num_assignees} assignees for shift 18->22, but {extra_requirement["num_assignees_required"]} required")
-
+        # Get the current number of assignees within the extra requirement time range
+        current_num_assignees = self.get_num_assignees_within_time_range(
+            day_index, 
+            extra_requirement["start_time"], 
+            extra_requirement["end_time"]
+        )
+        
+        # Calculate the total number of assignees needed for the extra shift
+        current_num_assignees_at_shift = len(self.schedule[day_index][extra_requirement["shift_id_to_assign_extra"]])
+        total_num_assignees_needed = current_num_assignees_at_shift + (extra_requirement["num_assignees_required"] - current_num_assignees)
+        
+        # Assign employees to the extra shift
+        assigned = self.assign_employees_to_shift(
+            day_index, 
+            extra_requirement["shift_id_to_assign_extra"], 
+            total_num_assignees_needed
+        )
+        
+        # If the number of assigned employees is less than required, print a message
+        if assigned < total_num_assignees_needed:
+            print(
+                f"Extra requirement for day {self.day_labels[day_index]} is not met. "
+                f"Required: {extra_requirement['num_assignees_required']}. "
+                f"Assigned: {self.get_num_assignees_within_time_range(day_index, extra_requirement['start_time'], extra_requirement['end_time'])}"
+            )
         
     def validate_schedule_final(self):
-        for employee in self.employees:
-            day = 0
-            while employee.workload < self.WORKLOAD_LIMIT_PER_PERSON and day < self.num_days:
-                # check if employee is available for any shift
-                for shift in employee.availability_in_week[day]:
-                    if self.can_assign(employee, day, shift):
-                        self.schedule[day][shift].append(employee.id)
-                        employee.set_workload(employee.workload + self.get_shift(shift).get_workload_value())
-                        break
-                day += 1
+        # for employee in self.employees:
+        #     day = 0
+        #     while employee.workload < self.WORKLOAD_LIMIT_PER_PERSON and day < self.num_days:
+        #         # check if employee is available for any shift
+        #         for shift in employee.availability_in_week[day]:
+        #             if self.can_assign(employee, day, shift):
+        #                 self.schedule[day][shift].append(employee.id)
+        #                 employee.set_workload(employee.workload + self.get_shift(shift).get_workload_value())
+        #                 break
+        #         day += 1
+   
+        self.exchange_assignment(5, 0)
 
+    def can_assign(self, employee: Employee, day_index, shift_index):
+        # Retrieve the workload value of the shift
+        shift_workload = self.get_shift(shift_index).get_workload_value()
+        
+        # Check if assigning this shift would exceed the employee's workload limit
+        if employee.workload >= self.WORKLOAD_LIMIT_PER_PERSON or employee.workload + shift_workload > self.WORKLOAD_LIMIT_PER_PERSON:
+            return False
+        
+        # Ensure the employee is not already assigned to another shift on the same day
+        for shift in self.schedule[day_index]:
+            if employee.id in shift:
+                return False
+        
+        return True
+    
+    def put_employee_to_shift(self, employee, day_index, shift_index):
+        shift_workload = self.get_shift(shift_index).get_workload_value()
+        self.schedule[day_index][shift_index].append(employee.id)
+        self.assignment[employee.id][day_index] = shift_index
+        self.total_workload += shift_workload
+
+        # update employee workload
+        employee.set_workload(employee.workload + shift_workload)
     
     def assign_employees_to_shift(self, day_index, shift_index, to_assign=1):
-        shift_workload = self.get_shift(shift_index).get_workload_value()
         available_employee_ids = self.get_available_employee_ids_for_shift(day_index, shift_index)
         prioritized_employees = self.prioritize_employees(available_employee_ids, day_index, shift_index)
-        assigned = 0
+        assigned = len(self.schedule[day_index][shift_index])  # number of employees already assigned to the shift
+
         while not prioritized_employees.is_empty() and assigned < to_assign:
             employee = prioritized_employees.pop().employee
-            if self.can_assign(employee, day_index, shift_index):
-                self.schedule[day_index][shift_index].append(employee.id)
-                self.assignment[employee.id][day_index] = shift_index
-                employee.set_workload(employee.workload + shift_workload)
-                self.total_workload += shift_workload
+
+            if self.can_assign(employee, day_index, shift_index) and self.handle_even_numbered_shifts(employee, day_index, shift_index):
+                self.put_employee_to_shift(employee, day_index, shift_index)
                 assigned += 1
         
-        # if no one is available for the shift, assign backup shift
+        # if no one is available for the shift, look for backup shift
         if assigned < to_assign:
             backup_shift_id = self.get_shift(shift_index).backup_shift_id
             if backup_shift_id != -1:
                 self.assign_employees_to_shift(day_index, backup_shift_id, to_assign)
         return assigned
 
+    def handle_even_numbered_shifts(self, employee, day_index, shift_index):
+        shift = self.get_shift(shift_index)
+
+        # Handle even-numbered shifts
+        if shift.is_even_numbered_shift:
+            # Check if employee is available for another shift in the week
+            if day_index == self.num_days - 1:
+                return False
+
+            available_day_ids = [
+                day for day in range(day_index + 1, self.num_days)
+                if shift_index in employee.availability_in_week[day] and self.can_assign(employee, day, shift_index)
+            ]
+
+            if not available_day_ids:
+                return False
+
+            second_day_id = min(available_day_ids, key=lambda day: len(self.shift_availability[day][shift_index]))
+            self.put_employee_to_shift(employee, second_day_id, shift_index)
+        return True
 
     def assign_work(self):
         for day_index in range(self.num_days):
@@ -290,6 +358,7 @@ class Scheduler:
             self.validate_schedule(day_index)
         self.validate_schedule_final()
         return self.schedule
+
     
 
     def print_schedule(self):
@@ -324,14 +393,63 @@ class Scheduler:
                 row.append(employee.workload)
                 writer.writerow(row)
         print ("Assignment is written to assignment.csv")
-            
+    
+
+    def exchange_assignment(self, day_index, shift_index):
+        # self.schedule[day_index][shift_index] is not assgined yet, leading to uncontinous day schedule
+        assigned_employee_ids = [employee_id for employee_id in range(self.num_employees) if self.assignment[employee_id][day_index] != -1]
+        
+        # get list of employees whose workload is less than WORKLOAD_LIMIT_PER_PERSON
+        under_workload_employee_ids = [employee.id for employee in self.employees if employee.workload < self.WORKLOAD_LIMIT_PER_PERSON and employee.id not in assigned_employee_ids]
+
+        # get list of employees available for this shift but not assigned due to workload limit
+        available_employee_ids = self.get_available_employee_ids_for_shift(day_index, shift_index)
+        # list of employees are currently assigned on this day
+       
+        # get available employees whose workload reaching WORKLOAD_LIMIT_PER_PERSON but not assigned to this shift in this day
+        candidates_for_shift = [employee_id for employee_id in available_employee_ids if self.get_employee(employee_id).workload == self.WORKLOAD_LIMIT_PER_PERSON and employee_id not in assigned_employee_ids]
+
+        # if the candidate takes the shift, there must be another under-workload employee to take one of the assigned shifts of the candidate
+        # if there is no under-workload employee, we can't exchange the assignment
+        if not under_workload_employee_ids or not candidates_for_shift:
+            return False
+        for candidate_id in candidates_for_shift:
+            candidate = self.get_employee(candidate_id)
+            # get candidate current assignment
+            candidate_assignment = self.assignment[candidate_id] # candidate_assignment[day] = shift assigned to that employee in that day
+
+            for day_id in range(self.num_days):
+                if candidate_assignment[day_id] == -1 or candidate_assignment[day_id] == 3:
+                    continue
+                assigned_shift_id = candidate_assignment[day_id]
+                for under_workload_employee_id in under_workload_employee_ids:
+                    under_workload_employee = self.get_employee(under_workload_employee_id)
+                    if under_workload_employee_id in self.shift_availability[day_id][assigned_shift_id] and self.can_assign(under_workload_employee, day_id, assigned_shift_id):
+                        # exchange the assignment
+
+                        # remove the candidate from the assigned shift
+                        self.assignment[candidate_id][day_id] = -1
+                        self.schedule[day_id][assigned_shift_id].remove(candidate_id)
+                        candidate.set_workload(candidate.workload - self.get_shift(assigned_shift_id).get_workload_value())
+
+                        # assign the replacement employee to the assigned shift
+                        self.put_employee_to_shift(under_workload_employee, day_id, assigned_shift_id)
+
+                        # assign the candidate to the current shift
+                        self.put_employee_to_shift(candidate, day_index, shift_index)
+                        return True
+
+        return False
+
 
 def main():
     shift_labels = ["08->12", "12->16", "14->18", "16->22", "18->22"]
 
     day_labels, employee_names, availability = utils.read_input(shift_labels)
-    scheduler = Scheduler(availability, employee_names, day_labels, shift_labels, 25)
-    scheduler.set_backup_shift("16->22", "14->18") # 14-18 is backup for 16-22
+    scheduler = Scheduler(availability, employee_names, day_labels, shift_labels, 120)
+    scheduler.set_backup_shift("14->18", "16->22") # 14-18 is backup for 16-22
+    scheduler.set_even_numbered_shifts("16->22") # 16-22 is even numbered shift
+    
     schedule = scheduler.assign_work()
     # # print(schedule)
     scheduler.print_schedule()

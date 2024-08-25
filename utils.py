@@ -9,7 +9,7 @@ def read_input(shift_labels):
     EMPLOYEE_NAME_COL_INDEX = 1
     AVAILABILITY_START_COL_INDEX = 2
     TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"
-    with open('data.csv', newline='') as csvfile:
+    with open('data_1.csv', newline='') as csvfile:
         reader = csv.reader(csvfile, delimiter=';')
         header = next(reader) # skip header
         day_labels = header[AVAILABILITY_START_COL_INDEX:]
@@ -42,3 +42,39 @@ def read_input(shift_labels):
             writer.writerow([employee_name] + [day_availability for day_availability in employee_availability])
 
     return day_labels, employee_names, availability
+
+def write_schedule(day_labels, shift_labels, schedule, employees):
+    num_days = len(day_labels)
+    num_shifts = len(shift_labels)
+    # write schedule to csv file
+    with open('schedule.csv', mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=';')
+        writer.writerow(["Shifts"] + day_labels)
+        for shift in range(num_shifts):
+            row = [shift_labels[shift]]
+            for day in range(num_days):
+                if schedule[day][shift] == []:
+                    row.append("None")
+                else:
+                    employee_ids = schedule[day][shift]
+                    employee_names = ", ".join([employees[employee_id].name for employee_id in employee_ids])
+                    row.append(employee_names)
+            writer.writerow(row)
+    print ("Schedule is written to schedule.csv")
+
+def write_assignment(day_labels, shift_labels, assignment, employees):
+    # write assignment of each employee to csv file
+    with open('assignment.csv', mode='w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter=';')
+        writer.writerow(["Employee"] + day_labels + ["Total Workload"])
+        for employee in employees:
+            row = [employee.name]
+            for day_index in range(len(day_labels)):
+                shift = assignment[employee.id][day_index]
+                if shift == -1:
+                    row.append("None")
+                else:
+                    row.append(shift_labels[shift])
+            row.append(employee.workload)
+            writer.writerow(row)
+    print ("Assignment is written to assignment.csv")

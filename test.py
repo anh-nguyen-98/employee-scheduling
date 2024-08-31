@@ -2,7 +2,6 @@ import heapq
 import re
 import sys
 import csv
-import datetime
 
 def binary_search(arr, target):
     left = 0
@@ -26,51 +25,41 @@ class Employee:
         self.workload = 0
 
     
-    def is_available_on_day_and_shift(self, day_index, shift_index):
+    def is_available(self, day_index, shift_index):
         return shift_index in self.availability_in_week[day_index]
 
 
-    def get_availability_on_day(self, day_index):
+    def get_day_availability(self, day_index):
         return self.availability_in_week[day_index]
     
     
     def set_workload(self, workload):
         self.workload = workload
 
-    def update_shifts_assigned(self, shift_id):
-        self.shifts_assigned[shift_id] += 1
-
 
 class Shift:
     def __init__(self, id, label, is_main_shift=True, is_even_numbered_shift=False) -> None:
         self.id = id
         self.label = label
-        self.is_main_shift = is_main_shift
-        self.is_even_numbered_shift = is_even_numbered_shift
-        self.backup_shift_id = -1
 
-    def get_workload_value(self):
-        # workload value can be adjusted here
-        return 1
-    
-    def set_backup(self, shift_id):
-        self.backup_shift_id = shift_id
-
-
-    def set_is_even_numbered_shift(self):
-        self.is_even_numbered_shift = True
-
-
-class TimeRangeShift(Shift):
-    def __init__(self, id, label) -> None:
-        super().__init__(id, label)
         parts = list(map(int, re.findall(r'\d+', label)))
         self.start_time = parts[0]
         self.end_time = parts[1]
         self.workload_value = self.end_time - self.start_time
-    
+
+        self.is_main_shift = is_main_shift
+        self.is_even_numbered_shift = is_even_numbered_shift # even numbered shifts are type of shifts that are assigned to employees on even number of days
+        self.backup_shift_id = -1 # backup shift id for this shift
+
     def get_workload_value(self):
         return self.workload_value
+    
+    def set_backup(self, shift_id):
+        self.backup_shift_id = shift_id
+
+    def set_is_even_numbered_shift(self):
+        self.is_even_numbered_shift = True
+
 
 
 class EmployeeComparator:
@@ -88,8 +77,8 @@ class EmployeeComparator:
             return self.employee.workload < other.employee.workload
         
         # then compare by today's availability from starting from the shift
-        employee_today_availability = self.employee.get_availability_on_day(self.compared_day)
-        other_today_availability = other.employee.get_availability_on_day(self.compared_day)
+        employee_today_availability = self.employee.get_day_availability(self.compared_day)
+        other_today_availability = other.employee.get_day_availability(self.compared_day)
         employee_shift_index = binary_search(employee_today_availability, self.compared_shift)
         other_shift_index = binary_search(other_today_availability, self.compared_shift)
         employee_num_available_shifts = len(employee_today_availability) - employee_shift_index
@@ -122,7 +111,7 @@ class Scheduler:
         self.num_days = len(self.day_labels)
         self.num_shifts = len(self.shift_labels)
 
-        self.shifts = [TimeRangeShift(i, self.shift_labels[i]) for i in range(self.num_shifts)]
+        self.shifts = [Shift(i, self.shift_labels[i]) for i in range(self.num_shifts)]
         self.main_shift_ids = [shift.id for shift in self.shifts if shift.is_main_shift]
         self.covering_shifts_map = self.map_shifts_to_covering_shifts()
 
@@ -146,8 +135,8 @@ class Scheduler:
             reader = csv.reader(csvfile, delimiter=DELIMITER)
             header = next(reader)
             day_labels = header[AVAILABILITY_START_COL_INDEX:]
-
-            for row in reader:
+            rows = [row for row in reader]
+            for row in rows:
                 # day_availability is a string of comma separated shifts, containing the shifts that the employee is available for that day
                 for day_availability in row[AVAILABILITY_START_COL_INDEX:]:
                     day_availability = day_availability.lower().strip()
@@ -166,17 +155,13 @@ class Scheduler:
 
     def extract_employee_availability(self, file_path, metadata):
         AVAILABILITY_START_COL_INDEX = metadata["AVAILABILITY_START_COL_INDEX"]
-        TIMESTAMP_COL_INDEX = metadata["TIMESTAMP_COL_INDEX"]
         EMPLOYEE_NAME_COL_INDEX = metadata["EMPLOYEE_NAME_COL_INDEX"]
-        TIMESTAMP_FORMAT = metadata["TIMESTAMP_FORMAT"]
         DELIMITER = metadata["DELIMITER"]
 
         with open(file_path, newline='') as csvfile:
             reader = csv.reader(csvfile, delimiter=DELIMITER)
             next(reader) # skip header
-            # sort rows by timestamp
-            rows = sorted(reader, key=lambda row: datetime.datetime.strptime(row[TIMESTAMP_COL_INDEX], TIMESTAMP_FORMAT))
-
+            rows = [row for row in reader]
             employee_names = [row[EMPLOYEE_NAME_COL_INDEX] for row in rows]
             availability = []
             for row in rows:
@@ -535,7 +520,7 @@ class Scheduler:
                 # under_workload employee will take the assigned shift of the candidate, so the workload of the candidate will be decreased, and the workload of the under_workload employee will be increased
                 for under_workload_employee_id in under_workload_employee_ids:
                     under_workload_employee = self.get_employee(under_workload_employee_id)
-                    if under_workload_employee.is_available_on_day_and_shift(day_id, assigned_shift_id) and self.can_assign(under_workload_employee, day_id, assigned_shift_id):
+                    if under_workload_employee.is_available(day_id, assigned_shift_id) and self.can_assign(under_workload_employee, day_id, assigned_shift_id):
                         # exchange the assignment
                         # remove the candidate from the assigned shift
                         self.remove_employee_from_shift(candidate, day_id, assigned_shift_id)
@@ -593,10 +578,8 @@ class Scheduler:
 def main():
     availability_file_path = 'data/data_31.08.24.csv'
     metadata = {
-        "TIMESTAMP_COL_INDEX": 0,
         "EMPLOYEE_NAME_COL_INDEX": 1,
         "AVAILABILITY_START_COL_INDEX": 10,
-        "TIMESTAMP_FORMAT": "%m/%d/%Y %H:%M:%S",
         "DELIMITER": ","
     }
     total_workload_limit = 140

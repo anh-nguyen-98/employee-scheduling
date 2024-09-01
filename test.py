@@ -104,6 +104,10 @@ class PriorityQueue:
 
 class Scheduler:
     def __init__(self, availability_file_path, metadata, total_workload_limit=None) -> None:
+        """
+        Shifts are sorted by start time
+        Employees, Employee availability, and Shift availability are sorted ascending by registration timestamp
+        """
         self.day_labels, self.shift_labels = self.extract_shift_and_day_labels(availability_file_path, metadata)
 
         employee_names, availability = self.extract_employee_availability(availability_file_path, metadata) # index of employee_names and availability corresponds to employee_id

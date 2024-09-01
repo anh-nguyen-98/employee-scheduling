@@ -2,6 +2,7 @@ import heapq
 import re
 import sys
 import csv
+import datetime
 
 def binary_search(arr, target):
     left = 0
@@ -112,7 +113,6 @@ class Scheduler:
         self.num_shifts = len(self.shift_labels)
 
         self.shifts = [Shift(i, self.shift_labels[i]) for i in range(self.num_shifts)]
-        self.main_shift_ids = [shift.id for shift in self.shifts if shift.is_main_shift]
         self.covering_shifts_map = self.map_shifts_to_covering_shifts()
 
         
@@ -157,11 +157,15 @@ class Scheduler:
         AVAILABILITY_START_COL_INDEX = metadata["AVAILABILITY_START_COL_INDEX"]
         EMPLOYEE_NAME_COL_INDEX = metadata["EMPLOYEE_NAME_COL_INDEX"]
         DELIMITER = metadata["DELIMITER"]
+        TIMESTAMP_COL_INDEX = metadata["TIMESTAMP_COL_INDEX"]
+        TIMESTAMP_FORMAT = metadata["TIMESTAMP_FORMAT"]
 
         with open(file_path, newline='') as csvfile:
             reader = csv.reader(csvfile, delimiter=DELIMITER)
             next(reader) # skip header
             rows = [row for row in reader]
+            # sort rows by timestamp
+            rows = sorted(rows, key=lambda row: datetime.datetime.strptime(row[TIMESTAMP_COL_INDEX], TIMESTAMP_FORMAT))
             employee_names = [row[EMPLOYEE_NAME_COL_INDEX] for row in rows]
             availability = []
             for row in rows:
@@ -191,7 +195,6 @@ class Scheduler:
         backup_shift_id = self.get_shift_id_by_label(backup_shift_label)
         self.get_shift(shift_id).set_backup(backup_shift_id)
         self.get_shift(backup_shift_id).is_main_shift = False
-        self.main_shift_ids.remove(backup_shift_id)
 
 
     def set_even_numbered_shifts(self, shift_label):
@@ -272,7 +275,7 @@ class Scheduler:
         Return list of shift ids in order of priority
         """
         # TODO: more criteria to prioritize shifts can be added here
-        return sorted(self.main_shift_ids, key=lambda shift: len(self.shift_availability[day][shift]))
+        return sorted(range(self.num_shifts), key=lambda shift: len(self.shift_availability[day][shift]))
     
 
     def prioritize_days(self):
@@ -286,10 +289,11 @@ class Scheduler:
     
     def get_unassigned_shifts(self, day_index):
         shifts = []
-        for shift_index in self.main_shift_ids:
-            backup_shift_id = self.get_shift(shift_index).backup_shift_id
-            if self.schedule[day_index][shift_index] == [] and (backup_shift_id == -1 or self.schedule[day_index][backup_shift_id] == []):
-                shifts.append(shift_index)
+        for shift_index in range(self.num_shifts):
+            if self.get_shift(shift_index).is_main_shift and self.schedule[day_index][shift_index] == []:
+                backup_shift_id = self.get_shift(shift_index).backup_shift_id
+                if backup_shift_id == -1 or self.schedule[day_index][backup_shift_id] == []:
+                    shifts.append(shift_index)
         return shifts
 
 
@@ -484,8 +488,9 @@ class Scheduler:
         for day_index in day_ids:
             shift_ids = self.prioritize_shifts(day_index)
             for shift_index in shift_ids:
-                self.assign_employees_to_shift(day_index, shift_index, to_assign=1)
-            self.handle_special_requirement(day_index)
+                if self.get_shift(shift_index).is_main_shift:
+                    self.assign_employees_to_shift(day_index, shift_index, to_assign=1)
+            self.handle_special_requirement(day_index, special_requirement)
         self.validate_schedule()
 
 
@@ -580,7 +585,9 @@ def main():
     metadata = {
         "EMPLOYEE_NAME_COL_INDEX": 1,
         "AVAILABILITY_START_COL_INDEX": 10,
-        "DELIMITER": ","
+        "DELIMITER": ",",
+        "TIMESTAMP_COL_INDEX": 0,
+        "TIMESTAMP_FORMAT" :"%m/%d/%Y %H:%M:%S"
     }
     total_workload_limit = 140
     scheduler = Scheduler(availability_file_path, metadata, total_workload_limit=total_workload_limit)
